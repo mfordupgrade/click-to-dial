@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fake CRM — Click to Dial</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='crm.css') }}">
+</head>
+<body>
+  <header class="top-bar">
+    <div>
+      <h1>Fake CRM</h1>
+      <p class="subtitle">Click a phone number to start an outbound call via Platform API</p>
+    </div>
+    <div class="user-block">
+      <span class="user-label">{{ user_name or user_email }}</span>
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit" class="button secondary">Sign out</button>
+      </form>
+    </div>
+  </header>
+
+  <main class="crm-panel layout-single">
+    <h2>Accounts</h2>
+    <table class="crm-table">
+      <thead>
+        <tr>
+          <th>Account ID</th>
+          <th>Contact</th>
+          <th>Company</th>
+          <th>Phone</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for record in records %}
+        <tr>
+          <td>{{ record.account_id }}</td>
+          <td>{{ record.name }}</td>
+          <td>{{ record.company }}</td>
+          <td>
+            <button
+              type="button"
+              class="dial-link"
+              data-phone="{{ record.phone }}"
+              data-name="{{ record.name }}"
+              data-account="{{ record.account_id }}"
+              title="Click to dial {{ record.name }}"
+            >{{ record.phone }}</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div id="dial-status" class="status" aria-live="polite"></div>
+
+    <aside class="hint">
+      <strong>Before dialing:</strong>
+      <ol>
+        <li>
+          Open the
+          <a href="{{ genesys_web_app_url }}" target="_blank" rel="noopener noreferrer">
+            Genesys Cloud web app
+          </a>
+          in a separate tab (same agent account as this CRM login).
+        </li>
+        <li>Sign in with <strong>web phone</strong> and set status to <strong>On Queue</strong>.</li>
+        <li>Click a phone number here — the API creates the conversation; all call controls stay in Genesys Cloud.</li>
+      </ol>
+      Recording and compliance follow your org's existing Genesys policies.
+    </aside>
+  </main>
+
+  <script>
+    const statusEl = document.getElementById('dial-status');
+
+    function setStatus(message, isError) {
+      statusEl.textContent = message;
+      statusEl.className = 'status' + (isError ? ' error' : ' success');
+    }
+
+    document.querySelectorAll('.dial-link').forEach(function (button) {
+      button.addEventListener('click', async function () {
+        const phone = button.dataset.phone;
+        const name = button.dataset.name;
+        const accountId = button.dataset.account;
+
+        setStatus('Creating outbound call for ' + phone + ' …', false);
+        button.disabled = true;
+
+        try {
+          const response = await fetch('{{ url_for("api_dial") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              phone: phone,
+              name: name,
+              account_id: accountId,
+            }),
+          });
+
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'Dial request failed.');
+          }
+
+          setStatus(
+            data.message + ' Conversation: ' + (data.conversation_id || 'n/a'),
+            false
+          );
+        } catch (err) {
+          setStatus(err.message || String(err), true);
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+  </script>
+</body>
+</html>
